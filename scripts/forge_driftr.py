@@ -4,7 +4,7 @@ from modules import scripts
 import modules.shared as shared
 import torch, math
 
-
+#effect seems better when aplied to denoised result after CFG, rather than to cond/uncond before CFG
 
 class driftrForge(scripts.Script):
     def __init__(self):
@@ -21,11 +21,12 @@ class driftrForge(scripts.Script):
     def ui(self, *args, **kwargs):
         with gr.Accordion(open=False, label=self.title()):
             with gr.Row():
-                method1 = gr.Dropdown(["None", "mean", "median", "centered mean", "average of extremes", "average of quartiles"], value="None", type="value", label='Correction method (per channel)')
-                method2 = gr.Dropdown(["None", "mean", "median"], value="None", type="value", label='Correction method (overall)')
+                method1 = gr.Dropdown(["None", "custom", "mean", "median", "mean/median average", "centered mean", "average of extremes", "average of quantiles"], value="None", type="value", label='Correction method (per channel)')
+                method2 = gr.Dropdown(["None", "mean", "median", "mean/median average", "center to quantile"], value="None", type="value", label='Correction method (overall)')
             with gr.Row(equalHeight=True):
                 sigmaWeight = gr.Dropdown(["Hard", "Soft", "None"], value="Hard", type="value", label='Limit effect by sigma', scale=0)
-                topK = gr.Slider(minimum=0.01, maximum=0.5, step=0.01, value=0.25, label='topK/bottomK', visible=False)
+                custom = gr.Textbox(value='0.5 * (M + m)', max_lines=1, label='custom function', visible=True)
+                topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='topK/bottomK', visible=False)
             with gr.Row():
                 stepS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Start step')
                 stepE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='End step')
@@ -33,9 +34,13 @@ class driftrForge(scripts.Script):
                 softClampS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Soft clamp start step')
                 softClampE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='Soft clamp end step')
 
+#could do custom formula
+                #   M = mean, m = median, q(x) = quantile, Mr(x, y) = average of range
+                #   n = thisstep, s = # steps ?
+                # have example list 
 
             def show_topK(method):
-                if method == "centered mean" or method=="average of extremes" or method=="average of quartiles":
+                if method == "centered mean" or method=="average of extremes" or method=="average of quantiles" or method=="center to quantile":
                     return gr.update(visible=True)
                 else:
                     return gr.update(visible=False)
@@ -43,6 +48,11 @@ class driftrForge(scripts.Script):
             method1.change(
                 fn=show_topK,
                 inputs=method1,
+                outputs=topK
+            )
+            method2.change(
+                fn=show_topK,
+                inputs=method2,
                 outputs=topK
             )
 
@@ -57,7 +67,7 @@ class driftrForge(scripts.Script):
             (softClampE,  "ldc_softClampE"),
         ]
 
-        return method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE
+        return method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
 
 
     def patch(self, model):
@@ -89,39 +99,85 @@ class driftrForge(scripts.Script):
             if thisStep >= self.stepS * lastStep and thisStep <= self.stepE * lastStep:
                 for b in range(len(latent)):
                     for c in range(3):
+                        custom = None
                         channel = latent[b][c]
 
                         if self.method1 == "mean":
-                            averageMid = torch.mean(channel)
-                            latent[b][c] -= averageMid  * channelMultiplier
+                            custom = "M"
+                            #averageMid = torch.mean(channel)
+                            #latent[b][c] -= averageMid  * channelMultiplier
 
                         elif self.method1 == "median":
-                            averageMid = torch.quantile(channel, 0.5)
-                            latent[b][c] -= averageMid  * channelMultiplier
+                            custom = "m"
+                            #averageMid = torch.quantile(channel, 0.5)
+                            #latent[b][c] -= averageMid  * channelMultiplier
+
+                        elif self.method1 == "mean/median average":
+                            custom = "0.5 * (M+m)"
+                            #averageMid = 0.5 * (torch.mean(channel) + torch.quantile(channel, 0.5))
+                            #latent[b][c] -= averageMid  * channelMultiplier
+                            
 
                         elif self.method1 == "centered mean":
-                            valuesHi = torch.topk(channel, int(len(channel)*self.topK), largest=True).values
-                            valuesLo = torch.topk(channel, int(len(channel)*self.topK), largest=False).values
-                            averageMid = torch.mean(channel).item() * len(channel)
-                            averageMid -= torch.mean(valuesHi).item() * len(channel)*self.topK
-                            averageMid -= torch.mean(valuesLo).item() * len(channel)*self.topK
-                            averageMid /= len(channel)*(1.0 - 2*self.topK)
-                            latent[b][c] -= averageMid  * channelMultiplier
+                            custom="rM(self.topK, 1.0-self.topK)"
+##                            valuesHi = torch.topk(channel, int(len(channel)*self.topK), largest=True).values
+##                            valuesLo = torch.topk(channel, int(len(channel)*self.topK), largest=False).values
+##                            averageMid = torch.mean(channel).item() * len(channel)
+##                            averageMid -= torch.mean(valuesHi).item() * len(channel)*self.topK
+##                            averageMid -= torch.mean(valuesLo).item() * len(channel)*self.topK
+##                            averageMid /= len(channel)*(1.0 - 2*self.topK)
+##                            latent[b][c] -= averageMid  * channelMultiplier
 
                         elif self.method1 == "average of extremes":
-                            valuesHi = torch.topk(channel, int(len(channel)*self.topK), largest=True).values
-                            valuesLo = torch.topk(channel, int(len(channel)*self.topK), largest=False).values
-                            averageMid = 0.5 * (torch.mean(valuesHi).item() + torch.mean(valuesLo).item())
-                            latent[b][c] -= averageMid  * channelMultiplier
+                            custom="0.5 * (inner_rL(self.topK) + inner_rH(1.0-self.topK))"
+##                            valuesHi = torch.topk(channel, int(len(channel)*self.topK), largest=True).values
+##                            valuesLo = torch.topk(channel, int(len(channel)*self.topK), largest=False).values
+##                            averageMid = 0.5 * (torch.mean(valuesHi).item() + torch.mean(valuesLo).item())
+##                            latent[b][c] -= averageMid  * channelMultiplier
 
-                        elif self.method1 == "average of quartiles":
-                            averageMid = 0.5 * (torch.quantile(channel, self.topK) + torch.quantile(channel, 1.0 - self.topK))
+                        elif self.method1 == "average of quantiles":
+                            custom="0.5 * (q(self.topK) + q(1.0-self.topK))"
+##                            averageMid = 0.5 * (torch.quantile(channel, self.topK) + torch.quantile(channel, 1.0 - self.topK))
+##                            latent[b][c] -= averageMid  * channelMultiplier
+
+                        elif self.method1 == "custom":
+                            custom = self.custom
+
+                        if custom != None:
+                            M = torch.mean(channel)
+                            m = torch.quantile(channel, 0.5)
+                            def q(quant):
+                                return torch.quantile(channel, quant)
+                            def inner_rL(lo):   #   mean of values from lowest to input(proportional)
+                                valuesLo = torch.topk(channel, int(len(channel)*lo), largest=False).values
+                                return torch.mean(valuesLo).item()
+                            def inner_rH(hi):   #   mean of values from input(proportional) to highest
+                                valuesHi = torch.topk(channel, int(len(channel)*(1.0-hi)), largest=True).values
+                                return torch.mean(valuesHi).item()
+                                
+                            def rM(rangelo, rangehi):       #   mean of range
+                                averageHi = inner_rH(rangehi)
+                                averageLo = inner_rL(rangelo)
+
+                                average = torch.mean(channel).item() * len(channel)
+                                average -= averageLo * len(channel) * rangelo
+                                average -= averageHi * len(channel) * (1.0-rangehi)
+                                average /= len(channel)*(rangehi - rangelo)
+                                return average
+
+                            averageMid = eval(custom)
                             latent[b][c] -= averageMid  * channelMultiplier
                             
                     if self.method2 == "mean":
                         latent[b] -= latent[b].mean() * fullMultiplier
                     elif self.method2 == "median":
                         latent[b] -= latent[b].median() * fullMultiplier
+                    elif self.method2 == "mean/median average":
+                        mm = latent[b].mean() + latent[b].median()
+                        latent[b] -= 0.5 * fullMultiplier * mm
+                    elif self.method2 == "center to quantile":
+                       quantile = torch.quantile(latent[b].flatten(), self.topK) #   0.5 is same as median
+                       latent[b] -= quantile * fullMultiplier
 
             if thisStep >= self.softClampS * lastStep and thisStep <= self.softClampE * lastStep:
                 for b in range(len(latent)):
@@ -159,7 +215,7 @@ class driftrForge(scripts.Script):
         # This will be called before every sampling.
         # If you use highres fix, this will be called twice.
 
-        method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE = script_args
+        method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
 
         if method1 == "None" and method2 == "None":
             return
@@ -172,6 +228,7 @@ class driftrForge(scripts.Script):
         self.sigmaWeight = sigmaWeight
         self.softClampS = softClampS
         self.softClampE = softClampE
+        self.custom = custom
         
 
         # Below codes will add some logs to the texts below the image outputs on UI.
@@ -193,6 +250,3 @@ class driftrForge(scripts.Script):
         params.sd_model.forge_objects.unet = unet
 
         return
-
-
-

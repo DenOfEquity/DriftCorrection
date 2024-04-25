@@ -13,12 +13,12 @@ custom functions:
 * M: mean
 * m: median
 * q(n): quantile
-*rM(n, m): mean of range, rM(0, 0.5) gives mean of lowest 50%
+* rM(n, m): mean of range, rM(0, 0.5) gives mean of lowest 50%
 
 
 ---
 ## To do? ##
-
+25/04/2024: added saving/loading of custom functions
 
 ---
 ## License ##

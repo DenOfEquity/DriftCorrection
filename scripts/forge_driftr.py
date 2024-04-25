@@ -34,11 +34,6 @@ class driftrForge(scripts.Script):
                 softClampS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Soft clamp start step')
                 softClampE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='Soft clamp end step')
 
-#could do custom formula
-                #   M = mean, m = median, q(x) = quantile, Mr(x, y) = average of range
-                #   n = thisstep, s = # steps ?
-                # have example list 
-
             def show_topK(method):
                 if method == "centered mean" or method=="average of extremes" or method=="average of quantiles" or method=="center to quantile":
                     return gr.update(visible=True)
@@ -57,14 +52,15 @@ class driftrForge(scripts.Script):
             )
 
         self.infotext_fields = [
-            (method1, "ldc_method1"),
-            (method2, "ldc_method2"),
-            (topK,   "ldc_topK"),
-            (stepS,  "ldc_stepS"),
-            (stepE,  "ldc_stepE"),
-            (sigmaWeight,  "ldc_sigW"),
-            (softClampS,  "ldc_softClampS"),
-            (softClampE,  "ldc_softClampE"),
+            (method1,       "ldc_method1"),
+            (method2,       "ldc_method2"),
+            (topK,          "ldc_topK"),
+            (stepS,         "ldc_stepS"),
+            (stepE,         "ldc_stepE"),
+            (sigmaWeight,   "ldc_sigW"),
+            (softClampS,    "ldc_softClampS"),
+            (softClampE,    "ldc_softClampE"),
+            (custom,        "ldc_custom"),
         ]
 
         return method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
@@ -148,6 +144,8 @@ class driftrForge(scripts.Script):
                             m = torch.quantile(channel, 0.5)
                             def q(quant):
                                 return torch.quantile(channel, quant)
+                            def qa(quant):
+                                return torch.quantile(abs(channel), quant)
                             def inner_rL(lo):   #   mean of values from lowest to input(proportional)
                                 valuesLo = torch.topk(channel, int(len(channel)*lo), largest=False).values
                                 return torch.mean(valuesLo).item()
@@ -243,7 +241,8 @@ class driftrForge(scripts.Script):
             ldc_softClampS = softClampS,
             ldc_softClampE = softClampE,
         ))
-
+        if method1 == "custom":
+            params.extra_generation_params.update(dict(ldc_custom = custom, ))
 
         unet = params.sd_model.forge_objects.unet
         unet = driftrForge.patch(self, unet)[0]

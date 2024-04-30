@@ -26,7 +26,7 @@ class driftrForge(scripts.Script):
             with gr.Row(equalHeight=True):
                 sigmaWeight = gr.Dropdown(["Hard", "Soft", "None"], value="Hard", type="value", label='Limit effect by sigma', scale=0)
                 custom = gr.Textbox(value='0.5 * (M + m)', max_lines=1, label='custom function', visible=True)
-                topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='topK/bottomK', visible=False)
+                topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='topK/bottomK', visible=False, scale=0)
             with gr.Row():
                 stepS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Start step')
                 stepE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='End step')
@@ -34,21 +34,23 @@ class driftrForge(scripts.Script):
                 softClampS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Soft clamp start step')
                 softClampE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='Soft clamp end step')
 
-            def show_topK(method):
-                if method == "centered mean" or method=="average of extremes" or method=="average of quantiles" or method=="center to quantile":
+            def show_topK(m1, m2):
+                if m1 == "centered mean" or m1 == "average of extremes" or m1 == "average of quantiles" or m2 == "center to quantile":
                     return gr.update(visible=True)
                 else:
                     return gr.update(visible=False)
 
             method1.change(
                 fn=show_topK,
-                inputs=method1,
-                outputs=topK
+                inputs=[method1, method2],
+                outputs=topK,
+                show_progress=False
             )
             method2.change(
                 fn=show_topK,
-                inputs=method2,
-                outputs=topK
+                inputs=[method1, method2],
+                outputs=topK,
+                show_progress=False
             )
 
         self.infotext_fields = [
@@ -125,7 +127,7 @@ class driftrForge(scripts.Script):
 ##                            latent[b][c] -= averageMid  * channelMultiplier
 
                         elif self.method1 == "average of extremes":
-                            custom="0.5 * (inner_rL(self.topK) + inner_rH(1.0-self.topK))"
+                            custom="0.5 * (inner_rL(self.topK) + inner_rH(self.topK))"
 ##                            valuesHi = torch.topk(channel, int(len(channel)*self.topK), largest=True).values
 ##                            valuesLo = torch.topk(channel, int(len(channel)*self.topK), largest=False).values
 ##                            averageMid = 0.5 * (torch.mean(valuesHi).item() + torch.mean(valuesLo).item())
@@ -150,11 +152,11 @@ class driftrForge(scripts.Script):
                                 valuesLo = torch.topk(channel, int(len(channel)*lo), largest=False).values
                                 return torch.mean(valuesLo).item()
                             def inner_rH(hi):   #   mean of values from input(proportional) to highest
-                                valuesHi = torch.topk(channel, int(len(channel)*(1.0-hi)), largest=True).values
+                                valuesHi = torch.topk(channel, int(len(channel)*hi), largest=True).values
                                 return torch.mean(valuesHi).item()
                                 
                             def rM(rangelo, rangehi):       #   mean of range
-                                averageHi = inner_rH(rangehi)
+                                averageHi = inner_rH(1.0-rangehi)
                                 averageLo = inner_rL(rangelo)
 
                                 average = torch.mean(channel).item() * len(channel)

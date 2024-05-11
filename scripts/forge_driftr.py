@@ -156,14 +156,17 @@ class driftrForge(scripts.Script):
                                 return torch.mean(valuesHi).item()
                                 
                             def rM(rangelo, rangehi):       #   mean of range
-                                averageHi = inner_rH(1.0-rangehi)
-                                averageLo = inner_rL(rangelo)
+                                if rangelo == rangehi:
+                                    return M
+                                else:
+                                    averageHi = inner_rH(1.0-rangehi)
+                                    averageLo = inner_rL(rangelo)
 
-                                average = torch.mean(channel).item() * len(channel)
-                                average -= averageLo * len(channel) * rangelo
-                                average -= averageHi * len(channel) * (1.0-rangehi)
-                                average /= len(channel)*(rangehi - rangelo)
-                                return average
+                                    average = torch.mean(channel).item() * len(channel)
+                                    average -= averageLo * len(channel) * rangelo
+                                    average -= averageHi * len(channel) * (1.0-rangehi)
+                                    average /= len(channel)*(rangehi - rangelo)
+                                    return average
 
                             averageMid = eval(custom)
                             latent[b][c] -= averageMid  * channelMultiplier

@@ -10,7 +10,7 @@ Go to the **Extensions** tab, then **Install from URL**, use the URL for this re
 
 ---
 ## Basic usage ##
-Pick methods (seems not much difference, might remove some after more testing).
+Pick methods.
 
 ---
 ## Advanced / Details ##
@@ -19,15 +19,23 @@ This sort of correction has a tendency to prevent extremes of lighting.
 custom functions:
 * M: mean
 * m: median
-* q(n): quantile. 0.5 is same as median. High values for low-light scenes.
+* q(n): quantile. 0.5 is same as median; using high values will darken the image appropriately for sunsets, etc.
 * rM(n, m): mean of range, rM(0, 0.5) gives mean of lowest 50%
+* c: channel index, will be 0, 1, or 2. Example uses: q([0.9, 0.5, 0.5][c]); [m, 0.0, 0.0][c]
 
 
 ---
-## To do? ##
-25/04/2024: added saving/loading of custom functions
+#### 06/06/2024 ####
+larger update:
+* added local average to overall, can use as a local contrast adjustment, adjustable blur radius
+* added strength sliders for per channel and overall (removes previously hidden multipliers, defaults match those previous values)
+* minor UI reshuffle
 
-05/11/2024: bug with centered mean when topK = 0.5: (0.5-0.5 = 0, who knew?)
+#### 05/11/2024 ####
+fixed bug with centered mean and topK of 0.5. (0.5-0.5)=0, who knew?
+
+#### 25/04/2024 ####
+added saving/loading of custom functions
 
 ---
 ## License ##

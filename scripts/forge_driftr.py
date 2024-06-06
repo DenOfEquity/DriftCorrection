@@ -22,34 +22,42 @@ class driftrForge(scripts.Script):
         with gr.Accordion(open=False, label=self.title()):
             with gr.Row():
                 method1 = gr.Dropdown(["None", "custom", "mean", "median", "mean/median average", "centered mean", "average of extremes", "average of quantiles"], value="None", type="value", label='Correction method (per channel)')
-                method2 = gr.Dropdown(["None", "mean", "median", "mean/median average", "center to quantile"], value="None", type="value", label='Correction method (overall)')
+                method2 = gr.Dropdown(["None", "mean", "median", "mean/median average", "center to quantile", "local average"], value="None", type="value", label='Correction method (overall)')
+            with gr.Row():
+                strengthC = gr.Slider(minimum=-1.0, maximum=1.0, step=0.01, value=1.0, label='strength (per channel)')
+                strengthO = gr.Slider(minimum=-1.0, maximum=1.0, step=0.01, value=0.8, label='strength (overall)')
             with gr.Row(equalHeight=True):
-                sigmaWeight = gr.Dropdown(["Hard", "Soft", "None"], value="Hard", type="value", label='Limit effect by sigma', scale=0)
                 custom = gr.Textbox(value='0.5 * (M + m)', max_lines=1, label='custom function', visible=True)
-                topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='topK/bottomK', visible=False, scale=0)
+                topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='quantiles', visible=False, scale=0)
+                blur = gr.Slider(minimum=0, maximum=128, step=1, value=0, label='blur radius (x8)', visible=False, scale=0)
+                sigmaWeight = gr.Dropdown(["Hard", "Soft", "None"], value="Hard", type="value", label='Limit effect by sigma', scale=0)
             with gr.Row():
                 stepS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Start step')
                 stepE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='End step')
             with gr.Row():
-                softClampS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label='Soft clamp start step')
+                softClampS = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='Soft clamp start step')
                 softClampE = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=1.0, label='Soft clamp end step')
 
             def show_topK(m1, m2):
-                if m1 == "centered mean" or m1 == "average of extremes" or m1 == "average of quantiles" or m2 == "center to quantile":
-                    return gr.update(visible=True)
+                if m1 == "centered mean" or m1 == "average of extremes" or m1 == "average of quantiles":
+                    return gr.update(visible=True), gr.update(visible=False)
+                elif m2 == "center to quantile":
+                    return gr.update(visible=True), gr.update(visible=False)
+                elif m2 == "local average":
+                    return gr.update(visible=False), gr.update(visible=True)
                 else:
-                    return gr.update(visible=False)
+                    return gr.update(visible=False), gr.update(visible=False)
 
             method1.change(
                 fn=show_topK,
                 inputs=[method1, method2],
-                outputs=topK,
+                outputs=[topK, blur],
                 show_progress=False
             )
             method2.change(
                 fn=show_topK,
                 inputs=[method1, method2],
-                outputs=topK,
+                outputs=[topK, blur],
                 show_progress=False
             )
 
@@ -57,6 +65,9 @@ class driftrForge(scripts.Script):
             (method1,       "ldc_method1"),
             (method2,       "ldc_method2"),
             (topK,          "ldc_topK"),
+            (blur,          "ldc_blur"),
+            (strengthC,     "ldc_strengthC"),
+            (strengthO,     "ldc_strengthO"),
             (stepS,         "ldc_stepS"),
             (stepE,         "ldc_stepE"),
             (sigmaWeight,   "ldc_sigW"),
@@ -65,7 +76,7 @@ class driftrForge(scripts.Script):
             (custom,        "ldc_custom"),
         ]
 
-        return method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
+        return method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
 
 
     def patch(self, model):
@@ -90,9 +101,12 @@ class driftrForge(scripts.Script):
 
             return torch.where(over_mask, max_replace, torch.where(under_mask, min_replace, input_tensor))
 
-        def center_latent_mean_values(latent, channelMultiplier, fullMultiplier):
+        def center_latent_mean_values(latent, multiplier):
             thisStep = shared.state.sampling_step
-            lastStep = shared.state.sampling_steps - 1
+            lastStep = shared.state.sampling_steps
+
+            channelMultiplier = multiplier * self.strengthC
+            fullMultiplier = multiplier * self.strengthO
           
             if thisStep >= self.stepS * lastStep and thisStep <= self.stepE * lastStep:
                 for b in range(len(latent)):
@@ -181,6 +195,12 @@ class driftrForge(scripts.Script):
                     elif self.method2 == "center to quantile":
                        quantile = torch.quantile(latent[b].flatten(), self.topK) #   0.5 is same as median
                        latent[b] -= quantile * fullMultiplier
+                    elif self.method2 == "local average" and fullMultiplier != 0.0 and self.blur != 0:
+                        import torchvision.transforms.functional as TF
+                        blurred = TF.gaussian_blur(latent[b], 1+self.blur+self.blur)       # blur size as input?
+                        torch.lerp(latent[b], blurred, fullMultiplier, out=latent[b])
+                        del blurred
+
 
             if thisStep >= self.softClampS * lastStep and thisStep <= self.softClampE * lastStep:
                 for b in range(len(latent)):
@@ -205,7 +225,7 @@ class driftrForge(scripts.Script):
                     mult += 1.0
                     mult /= 2.0
 
-            denoised = center_latent_mean_values(denoised, mult, mult * 0.8)        
+            denoised = center_latent_mean_values(denoised, mult)        
             return denoised
 
         m = model.clone()
@@ -218,7 +238,7 @@ class driftrForge(scripts.Script):
         # This will be called before every sampling.
         # If you use highres fix, this will be called twice.
 
-        method1, method2, topK, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
+        method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
 
         if method1 == "None" and method2 == "None":
             return
@@ -226,6 +246,9 @@ class driftrForge(scripts.Script):
         self.method1 = method1
         self.method2 = method2
         self.topK = topK
+        self.blur = blur
+        self.strengthC = strengthC
+        self.strengthO = strengthO
         self.stepS = stepS
         self.stepE = stepE
         self.sigmaWeight = sigmaWeight
@@ -239,7 +262,8 @@ class driftrForge(scripts.Script):
         params.extra_generation_params.update(dict(
             ldc_method1 = method1,
             ldc_method2 = method2,
-            ldc_topK = topK,
+            ldc_strengthC = strengthC,
+            ldc_strengthO = strengthO,
             ldc_stepS = stepS,
             ldc_stepE = stepE,
             ldc_sigW = sigmaWeight,
@@ -248,6 +272,10 @@ class driftrForge(scripts.Script):
         ))
         if method1 == "custom":
             params.extra_generation_params.update(dict(ldc_custom = custom, ))
+        if method1 == "centered mean" or method1 == "average of extremes" or method1 == "average of quantiles" or method2 == "center to quantile":
+            params.extra_generation_params.update(dict(ldc_topK = topK, ))
+        if method2 == "local average":
+            params.extra_generation_params.update(dict(ldc_blur = blur, ))
 
         unet = params.sd_model.forge_objects.unet
         unet = driftrForge.patch(self, unet)[0]

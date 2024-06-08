@@ -110,7 +110,7 @@ class driftrForge(scripts.Script):
           
             if thisStep >= self.stepS * lastStep and thisStep <= self.stepE * lastStep:
                 for b in range(len(latent)):
-                    for c in range(3):
+                    for c in range(4):
                         custom = None
                         channel = latent[b][c]
 

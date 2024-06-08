@@ -21,7 +21,7 @@ custom functions:
 * m: median
 * q(n): quantile. 0.5 is same as median; using high values will darken the image appropriately for sunsets, etc.
 * rM(n, m): mean of range, rM(0, 0.5) gives mean of lowest 50%
-* c: channel index, will be 0, 1, or 2. Example uses: q([0.9, 0.5, 0.5][c]); [m, 0.0, 0.0][c]
+* c: channel index, will be 0, 1, 2, or 3. Example uses: q([0.9, 0.5, 0.5, 0.75][c]); [m, 0.0, 0.0, m][c]
 
 
 ---

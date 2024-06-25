@@ -25,6 +25,9 @@ custom functions:
 
 
 ---
+#### 25/06/2024 ####
+* generation parameters now also saved to *params.txt*
+
 #### 06/06/2024 ####
 larger update:
 * added local average to overall, can use as a local contrast adjustment, adjustable blur radius

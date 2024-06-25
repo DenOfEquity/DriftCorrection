@@ -3,6 +3,7 @@ import gradio as gr
 from modules import scripts
 import modules.shared as shared
 import torch, math
+import torchvision.transforms.functional as TF
 
 #effect seems better when aplied to denoised result after CFG, rather than to cond/uncond before CFG
 
@@ -196,8 +197,10 @@ class driftrForge(scripts.Script):
                        quantile = torch.quantile(latent[b].flatten(), self.topK) #   0.5 is same as median
                        latent[b] -= quantile * fullMultiplier
                     elif self.method2 == "local average" and fullMultiplier != 0.0 and self.blur != 0:
-                        import torchvision.transforms.functional as TF
-                        blurred = TF.gaussian_blur(latent[b], 1+self.blur+self.blur)       # blur size as input?
+                        minDim = min(latent.size(2), latent.size(3))
+                        blurSize = min (minDim, 1+self.blur+self.blur)
+                        
+                        blurred = TF.gaussian_blur(latent[b], blurSize)
                         torch.lerp(latent[b], blurred, fullMultiplier, out=latent[b])
                         del blurred
 
@@ -234,10 +237,7 @@ class driftrForge(scripts.Script):
         return (m, )
 
 
-    def process_before_every_sampling(self, params, *script_args, **kwargs):
-        # This will be called before every sampling.
-        # If you use highres fix, this will be called twice.
-
+    def process(self, params, *script_args, **kwargs):
         method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
 
         if method1 == "None" and method2 == "None":
@@ -256,7 +256,6 @@ class driftrForge(scripts.Script):
         self.softClampE = softClampE
         self.custom = custom
         
-
         # Below codes will add some logs to the texts below the image outputs on UI.
         # The extra_generation_params does not influence results.
         params.extra_generation_params.update(dict(
@@ -277,8 +276,14 @@ class driftrForge(scripts.Script):
         if method2 == "local average":
             params.extra_generation_params.update(dict(ldc_blur = blur, ))
 
-        unet = params.sd_model.forge_objects.unet
-        unet = driftrForge.patch(self, unet)[0]
-        params.sd_model.forge_objects.unet = unet
+        return
+
+
+    def process_before_every_sampling(self, params, *script_args, **kwargs):
+        method1, method2 = script_args[0], script_args[1]
+        if method1 != "None" and method2 != "None":
+            unet = params.sd_model.forge_objects.unet
+            unet = driftrForge.patch(self, unet)[0]
+            params.sd_model.forge_objects.unet = unet
 
         return

@@ -281,7 +281,7 @@ class driftrForge(scripts.Script):
 
     def process_before_every_sampling(self, params, *script_args, **kwargs):
         method1, method2 = script_args[0], script_args[1]
-        if method1 != "None" and method2 != "None":
+        if method1 != "None" or method2 != "None":
             unet = params.sd_model.forge_objects.unet
             unet = driftrForge.patch(self, unet)[0]
             params.sd_model.forge_objects.unet = unet

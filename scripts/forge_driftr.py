@@ -198,6 +198,8 @@ class driftrForge(scripts.Script):
                        latent[b] -= quantile * fullMultiplier
                     elif self.method2 == "local average" and fullMultiplier != 0.0 and self.blur != 0:
                         minDim = min(latent.size(2), latent.size(3))
+                        if minDim % 2 == 0:    #     blur kernel size must be odd
+                            minDim -= 1
                         blurSize = min (minDim, 1+self.blur+self.blur)
                         
                         blurred = TF.gaussian_blur(latent[b], blurSize)

@@ -4,6 +4,7 @@ from modules import scripts
 import modules.shared as shared
 import torch, math
 import torchvision.transforms.functional as TF
+from modules.ui_components import InputAccordion
 
 #effect seems better when aplied to denoised result after CFG, rather than to cond/uncond before CFG
 
@@ -20,14 +21,14 @@ class driftrForge(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, *args, **kwargs):
-        with gr.Accordion(open=False, label=self.title()):
+        with InputAccordion(False, label=self.title()) as enabled:
             with gr.Row():
                 method1 = gr.Dropdown(["None", "custom", "mean", "median", "mean/median average", "centered mean", "average of extremes", "average of quantiles"], value="None", type="value", label='Correction method (per channel)')
                 method2 = gr.Dropdown(["None", "mean", "median", "mean/median average", "center to quantile", "local average"], value="None", type="value", label='Correction method (overall)')
             with gr.Row():
                 strengthC = gr.Slider(minimum=-1.0, maximum=1.0, step=0.01, value=1.0, label='strength (per channel)')
                 strengthO = gr.Slider(minimum=-1.0, maximum=1.0, step=0.01, value=0.8, label='strength (overall)')
-            with gr.Row(equalHeight=True):
+            with gr.Row():
                 custom = gr.Textbox(value='0.5 * (M + m)', max_lines=1, label='custom function', visible=True)
                 topK = gr.Slider(minimum=0.01, maximum=1.0, step=0.01, value=0.5, label='quantiles', visible=False, scale=0)
                 blur = gr.Slider(minimum=0, maximum=128, step=1, value=0, label='blur radius (x8)', visible=False, scale=0)
@@ -62,7 +63,22 @@ class driftrForge(scripts.Script):
                 show_progress=False
             )
 
+        enabled.do_not_save_to_config = True
+        method1.do_not_save_to_config = True
+        method2.do_not_save_to_config = True
+        topK.do_not_save_to_config = True
+        blur.do_not_save_to_config = True
+        strengthC.do_not_save_to_config = True
+        strengthO.do_not_save_to_config = True
+        stepS.do_not_save_to_config = True
+        stepE.do_not_save_to_config = True
+        sigmaWeight.do_not_save_to_config = True
+        softClampS.do_not_save_to_config = True
+        softClampE.do_not_save_to_config = True
+        custom.do_not_save_to_config = True
+
         self.infotext_fields = [
+            (enabled, lambda d: d.get("ldc_enabled", False)),
             (method1,       "ldc_method1"),
             (method2,       "ldc_method2"),
             (topK,          "ldc_topK"),
@@ -77,14 +93,12 @@ class driftrForge(scripts.Script):
             (custom,        "ldc_custom"),
         ]
 
-        return method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
+        return enabled, method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom
 
 
     def patch(self, model):
-        model_sampling = model.model.model_sampling
-        sigmin = model_sampling.sigma(model_sampling.timestep(model_sampling.sigma_min))
-        sigmax = model_sampling.sigma(model_sampling.timestep(model_sampling.sigma_max))
-
+        sigmin = model.model.predictor.sigma_min.item()
+        sigmax = model.model.predictor.sigma_max.item()
 
 ##  https://huggingface.co/blog/TimothyAlexisVass/explaining-the-sdxl-latent-space
         def soft_clamp_tensor(input_tensor, threshold=3.5, boundary=4):
@@ -211,7 +225,6 @@ class driftrForge(scripts.Script):
                 for b in range(len(latent)):
                     latent[b] = soft_clamp_tensor (latent[b])
 
-
             return latent
 
 
@@ -240,50 +253,49 @@ class driftrForge(scripts.Script):
 
 
     def process(self, params, *script_args, **kwargs):
-        method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
+        enabled, method1, method2, topK, blur, strengthC, strengthO, stepS, stepE, sigmaWeight, softClampS, softClampE, custom = script_args
 
-        if method1 == "None" and method2 == "None":
-            return
-
-        self.method1 = method1
-        self.method2 = method2
-        self.topK = topK
-        self.blur = blur
-        self.strengthC = strengthC
-        self.strengthO = strengthO
-        self.stepS = stepS
-        self.stepE = stepE
-        self.sigmaWeight = sigmaWeight
-        self.softClampS = softClampS
-        self.softClampE = softClampE
-        self.custom = custom
-        
-        # Below codes will add some logs to the texts below the image outputs on UI.
-        # The extra_generation_params does not influence results.
-        params.extra_generation_params.update(dict(
-            ldc_method1 = method1,
-            ldc_method2 = method2,
-            ldc_strengthC = strengthC,
-            ldc_strengthO = strengthO,
-            ldc_stepS = stepS,
-            ldc_stepE = stepE,
-            ldc_sigW = sigmaWeight,
-            ldc_softClampS = softClampS,
-            ldc_softClampE = softClampE,
-        ))
-        if method1 == "custom":
-            params.extra_generation_params.update(dict(ldc_custom = custom, ))
-        if method1 == "centered mean" or method1 == "average of extremes" or method1 == "average of quantiles" or method2 == "center to quantile":
-            params.extra_generation_params.update(dict(ldc_topK = topK, ))
-        if method2 == "local average":
-            params.extra_generation_params.update(dict(ldc_blur = blur, ))
+        if enabled:
+            self.method1 = method1
+            self.method2 = method2
+            self.topK = topK
+            self.blur = blur
+            self.strengthC = strengthC
+            self.strengthO = strengthO
+            self.stepS = stepS
+            self.stepE = stepE
+            self.sigmaWeight = sigmaWeight
+            self.softClampS = softClampS
+            self.softClampE = softClampE
+            self.custom = custom
+            
+            # Below codes will add some logs to the texts below the image outputs on UI.
+            # The extra_generation_params does not influence results.
+            params.extra_generation_params.update(dict(
+                ldc_enabled = enabled,
+                ldc_method1 = method1,
+                ldc_method2 = method2,
+                ldc_strengthC = strengthC,
+                ldc_strengthO = strengthO,
+                ldc_stepS = stepS,
+                ldc_stepE = stepE,
+                ldc_sigW = sigmaWeight,
+                ldc_softClampS = softClampS,
+                ldc_softClampE = softClampE,
+            ))
+            if method1 == "custom":
+                params.extra_generation_params.update(dict(ldc_custom = custom, ))
+            if method1 == "centered mean" or method1 == "average of extremes" or method1 == "average of quantiles" or method2 == "center to quantile":
+                params.extra_generation_params.update(dict(ldc_topK = topK, ))
+            if method2 == "local average":
+                params.extra_generation_params.update(dict(ldc_blur = blur, ))
 
         return
 
 
     def process_before_every_sampling(self, params, *script_args, **kwargs):
-        method1, method2 = script_args[0], script_args[1]
-        if method1 != "None" or method2 != "None":
+        enabled = script_args[0]
+        if enabled:
             unet = params.sd_model.forge_objects.unet
             unet = driftrForge.patch(self, unet)[0]
             params.sd_model.forge_objects.unet = unet
